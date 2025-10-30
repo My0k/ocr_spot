@@ -1,0 +1,22 @@
+# Entornos virtuales
+venv/
+.venv/
+
+# Configuraciones sensibles
+config.conf
+
+# Archivos de Python compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Archivos temporales o de sistema
+*.log
+*.tmp
+*.swp
+.DS_Store
+
+# Archivos de IDEs
+.vscode/
+.idea/
