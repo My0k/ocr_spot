@@ -585,17 +585,82 @@ class OCRSpotManager:
         if not text:
             return text
         
-        # Normalizar unicode (eliminar tildes)
-        normalized = unicodedata.normalize('NFD', text)
-        ascii_text = normalized.encode('ascii', 'ignore').decode('ascii')
+        # Diccionario de reemplazos específicos para caracteres comunes
+        replacements = {
+            # Vocales con tildes
+            'á': 'a', 'à': 'a', 'ä': 'a', 'â': 'a', 'ā': 'a', 'ă': 'a', 'ą': 'a',
+            'Á': 'A', 'À': 'A', 'Ä': 'A', 'Â': 'A', 'Ā': 'A', 'Ă': 'A', 'Ą': 'A',
+            
+            'é': 'e', 'è': 'e', 'ë': 'e', 'ê': 'e', 'ē': 'e', 'ĕ': 'e', 'ė': 'e', 'ę': 'e', 'ě': 'e',
+            'É': 'E', 'È': 'E', 'Ë': 'E', 'Ê': 'E', 'Ē': 'E', 'Ĕ': 'E', 'Ė': 'E', 'Ę': 'E', 'Ě': 'E',
+            
+            'í': 'i', 'ì': 'i', 'ï': 'i', 'î': 'i', 'ī': 'i', 'ĭ': 'i', 'į': 'i',
+            'Í': 'I', 'Ì': 'I', 'Ï': 'I', 'Î': 'I', 'Ī': 'I', 'Ĭ': 'I', 'Į': 'I',
+            
+            'ó': 'o', 'ò': 'o', 'ö': 'o', 'ô': 'o', 'ō': 'o', 'ŏ': 'o', 'ő': 'o', 'ø': 'o',
+            'Ó': 'O', 'Ò': 'O', 'Ö': 'O', 'Ô': 'O', 'Ō': 'O', 'Ŏ': 'O', 'Ő': 'O', 'Ø': 'O',
+            
+            'ú': 'u', 'ù': 'u', 'ü': 'u', 'û': 'u', 'ū': 'u', 'ŭ': 'u', 'ů': 'u', 'ű': 'u', 'ų': 'u',
+            'Ú': 'U', 'Ù': 'U', 'Ü': 'U', 'Û': 'U', 'Ū': 'U', 'Ŭ': 'U', 'Ů': 'U', 'Ű': 'U', 'Ų': 'U',
+            
+            # Consonantes especiales
+            'ñ': 'n', 'Ñ': 'N',
+            'ç': 'c', 'Ç': 'C', 'ć': 'c', 'Ć': 'C', 'č': 'c', 'Č': 'C',
+            'ş': 's', 'Ş': 'S', 'š': 's', 'Š': 'S', 'ś': 's', 'Ś': 'S',
+            'ž': 'z', 'Ž': 'Z', 'ź': 'z', 'Ź': 'Z', 'ż': 'z', 'Ż': 'Z',
+            'ř': 'r', 'Ř': 'R',
+            'ł': 'l', 'Ł': 'L', 'ľ': 'l', 'Ľ': 'L',
+            'ď': 'd', 'Ď': 'D',
+            'ť': 't', 'Ť': 'T',
+            'ň': 'n', 'Ň': 'N', 'ń': 'n', 'Ń': 'N',
+            'ğ': 'g', 'Ğ': 'G',
+            'ı': 'i', 'İ': 'I',
+            
+            # Otros caracteres comunes
+            'æ': 'ae', 'Æ': 'AE',
+            'œ': 'oe', 'Œ': 'OE',
+            'ß': 'ss',
+            'ð': 'd', 'Ð': 'D',
+            'þ': 'th', 'Þ': 'TH',
+            
+            # Símbolos y puntuación que pueden causar problemas
+            '–': '-', '—': '-', '―': '-',  # Diferentes tipos de guiones
+            ''': "'", ''': "'", '"': '"', '"': '"',  # Comillas tipográficas
+            '…': '...', '•': '-', '·': '-',
+            '°': 'deg', '®': 'R', '©': 'C', '™': 'TM',
+            '€': 'EUR', '$': 'USD', '£': 'GBP', '¥': 'JPY',
+            '&': 'and', '@': 'at', '#': 'num', '%': 'pct',
+            '+': 'plus', '=': 'eq', '<': 'lt', '>': 'gt',
+            '¿': '', '¡': '', '«': '', '»': '',
+            
+            # Espacios especiales
+            '\u00A0': ' ',  # Non-breaking space
+            '\u2000': ' ', '\u2001': ' ', '\u2002': ' ', '\u2003': ' ',  # En spaces
+            '\u2004': ' ', '\u2005': ' ', '\u2006': ' ', '\u2007': ' ',  # Em spaces
+            '\u2008': ' ', '\u2009': ' ', '\u200A': ' ', '\u200B': '',   # Thin spaces
+        }
+        
+        # Aplicar reemplazos específicos
+        normalized_text = text
+        for original, replacement in replacements.items():
+            normalized_text = normalized_text.replace(original, replacement)
+        
+        # Reemplazar espacios múltiples con uno solo
+        normalized_text = re.sub(r'\s+', ' ', normalized_text)
         
         # Reemplazar espacios con guiones bajos
-        ascii_text = ascii_text.replace(' ', '_')
+        normalized_text = normalized_text.replace(' ', '_')
         
-        # Eliminar caracteres especiales excepto guiones, guiones bajos y puntos
-        ascii_text = re.sub(r'[^a-zA-Z0-9._/-]', '', ascii_text)
+        # Eliminar caracteres especiales restantes, mantener solo alfanuméricos, puntos, guiones y guiones bajos
+        normalized_text = re.sub(r'[^a-zA-Z0-9._/-]', '', normalized_text)
         
-        return ascii_text
+        # Limpiar guiones bajos múltiples
+        normalized_text = re.sub(r'_+', '_', normalized_text)
+        
+        # Eliminar guiones bajos al inicio y final
+        normalized_text = normalized_text.strip('_')
+        
+        return normalized_text
 
     def sync_odoo_to_s3_and_dynamodb(self, step_by_step: bool = True):
         """Sincroniza PDFs desde Odoo a S3 y genera entradas en DynamoDB"""
@@ -766,9 +831,9 @@ class OCRSpotManager:
                                     'doc_id': str(doc_id),
                                     'employee_id': str(emp_id),
                                     'tipo_documento': tipo_doc_norm,
-                                    'comuna_original': comuna,  # Mantener original en metadatos si es necesario
-                                    'tipologia_original': tipologia,
-                                    'rbd_original': rbd
+                                    'comuna_norm': comuna_norm,
+                                    'tipologia_norm': tipologia_norm,
+                                    'rbd_norm': rbd_norm
                                 }
                             }
                         )
@@ -780,8 +845,6 @@ class OCRSpotManager:
                         self._ensure_dynamodb_entry(input_s3_path, output_s3_path)
                         
                         print(f"[{index}/{total_docs}] ✅ Procesado: {s3_key}")
-                        print(f"    Original: {comuna}/{tipologia}/{rbd}/{rut}/{tipo_doc}.pdf")
-                        print(f"    Normalizado: {s3_key}")
                         processed_count += 1
                         
                     except Exception as e:
