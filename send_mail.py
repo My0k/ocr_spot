@@ -26,11 +26,15 @@ class SESMailer:
             region_name=self.region
         )
     
-    def send_sync_progress_email(self, progress_percent: int, processed: int, total: int, errors: int = 0):
+    def send_sync_progress_email(self, progress_percent: int, processed: int, total: int, errors: int = 0, milestone_message: str = None):
         """Envía email de progreso de sincronización Odoo → S3"""
         
         # Determinar el tipo de mensaje según el progreso
-        if progress_percent == 10:
+        if milestone_message:
+            subject = f"🎯 Hito Alcanzado - {processed} archivos procesados"
+            status_emoji = "🎯"
+            status_text = "Hito Alcanzado"
+        elif progress_percent == 10:
             subject = "🚀 Sincronización Odoo → S3 Iniciada (10% completado)"
             status_emoji = "🟡"
             status_text = "En Progreso"
@@ -49,6 +53,15 @@ class SESMailer:
         
         # Calcular estadísticas
         success_rate = ((processed - errors) / processed * 100) if processed > 0 else 0
+        
+        # Mensaje especial para hitos
+        milestone_html = ""
+        if milestone_message:
+            milestone_html = f"""
+            <div style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center;">
+                <h3 style="margin: 0; font-size: 18px;">🎯 {milestone_message}</h3>
+            </div>
+            """
         
         # HTML del email con diseño UX
         html_body = f"""
@@ -83,6 +96,8 @@ class SESMailer:
                 
                 <div class="content">
                     <h2>Progreso de Sincronización Odoo → AWS S3</h2>
+                    
+                    {milestone_html}
                     
                     <div class="progress-container">
                         <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
@@ -130,9 +145,11 @@ class SESMailer:
         """
         
         # Texto plano como fallback
+        milestone_text = f"\n🎯 {milestone_message}\n" if milestone_message else ""
+        
         text_body = f"""
         {status_emoji} SINCRONIZACIÓN OCR SPOT - {status_text}
-        
+        {milestone_text}
         Progreso: {progress_percent}%
         
         Estadísticas:

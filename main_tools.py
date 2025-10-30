@@ -727,6 +727,7 @@ class OCRSpotManager:
             # Variables para control de emails
             email_10_sent = False
             email_50_sent = False
+            email_100_files_sent = False  # Nuevo control para 100 archivos
             
             for index, doc_id in enumerate(document_ids, start=1):
                 try:
@@ -743,6 +744,18 @@ class OCRSpotManager:
                         print("\n📧 Enviando notificación de progreso (50%)...")
                         mailer.send_sync_progress_email(50, index, total_docs, error_count)
                         email_50_sent = True
+                    
+                    # Enviar email cuando se hayan procesado 100 archivos exitosamente
+                    if processed_count == 100 and not email_100_files_sent:
+                        print("\n📧 Enviando notificación de 100 archivos procesados...")
+                        mailer.send_sync_progress_email(
+                            int((index / total_docs) * 100), 
+                            index, 
+                            total_docs, 
+                            error_count,
+                            milestone_message="¡Primer hito alcanzado! 100 archivos procesados exitosamente."
+                        )
+                        email_100_files_sent = True
                     
                     # Leer datos del documento
                     doc_data = models.execute_kw(
