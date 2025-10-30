@@ -5,6 +5,8 @@ from botocore.exceptions import ClientError
 import configparser
 from typing import List, Dict, Any
 from datetime import datetime
+import unicodedata
+import re
 
 class OCRSpotManager:
     def __init__(self, config_file: str = 'config.conf'):
@@ -578,6 +580,23 @@ class OCRSpotManager:
         except ClientError as e:
             print(f"❌ Error eliminando contenido de la tabla: {e}")
 
+    def normalize_s3_path(self, text: str) -> str:
+        """Normaliza texto para uso en S3, eliminando tildes y caracteres especiales"""
+        if not text:
+            return text
+        
+        # Normalizar unicode (eliminar tildes)
+        normalized = unicodedata.normalize('NFD', text)
+        ascii_text = normalized.encode('ascii', 'ignore').decode('ascii')
+        
+        # Reemplazar espacios con guiones bajos
+        ascii_text = ascii_text.replace(' ', '_')
+        
+        # Eliminar caracteres especiales excepto guiones, guiones bajos y puntos
+        ascii_text = re.sub(r'[^a-zA-Z0-9._/-]', '', ascii_text)
+        
+        return ascii_text
+
     def sync_odoo_to_s3_and_dynamodb(self, step_by_step: bool = True):
         """Sincroniza PDFs desde Odoo a S3 y genera entradas en DynamoDB"""
         import xmlrpc.client
@@ -689,8 +708,15 @@ class OCRSpotManager:
                     rbd = emp_data.get('address_id') and emp_data['address_id'][1] or 'SinRBD'
                     rut = emp_data.get('identification_id') or 'SinRUT'
                     
-                    # Generar rutas S3 (input y output)
-                    s3_key = f"{comuna}/{tipologia}/{rbd}/{rut}/{tipo_doc}.pdf"
+                    # Normalizar nombres para S3 (eliminar tildes y caracteres especiales)
+                    comuna_norm = self.normalize_s3_path(comuna)
+                    tipologia_norm = self.normalize_s3_path(tipologia)
+                    rbd_norm = self.normalize_s3_path(rbd)
+                    rut_norm = self.normalize_s3_path(rut)
+                    tipo_doc_norm = self.normalize_s3_path(tipo_doc)
+                    
+                    # Generar rutas S3 (input y output) con nombres normalizados
+                    s3_key = f"{comuna_norm}/{tipologia_norm}/{rbd_norm}/{rut_norm}/{tipo_doc_norm}.pdf"
                     input_s3_path = f"s3://{self.bucket_name}/{s3_key}"
                     
                     # Generar output path con sufijo _ocr
@@ -728,7 +754,7 @@ class OCRSpotManager:
                             temp_file.write(pdf_data)
                             temp_path = temp_file.name
                         
-                        # Subir a S3
+                        # Subir a S3 con metadatos normalizados (solo ASCII)
                         self.s3_client.upload_file(
                             temp_path,
                             self.bucket_name,
@@ -739,8 +765,10 @@ class OCRSpotManager:
                                     'source': 'odoo',
                                     'doc_id': str(doc_id),
                                     'employee_id': str(emp_id),
-                                    'tipo_documento': tipo_doc,
-                                    'output_path': output_s3_path
+                                    'tipo_documento': tipo_doc_norm,
+                                    'comuna_original': comuna,  # Mantener original en metadatos si es necesario
+                                    'tipologia_original': tipologia,
+                                    'rbd_original': rbd
                                 }
                             }
                         )
@@ -752,6 +780,8 @@ class OCRSpotManager:
                         self._ensure_dynamodb_entry(input_s3_path, output_s3_path)
                         
                         print(f"[{index}/{total_docs}] ✅ Procesado: {s3_key}")
+                        print(f"    Original: {comuna}/{tipologia}/{rbd}/{rut}/{tipo_doc}.pdf")
+                        print(f"    Normalizado: {s3_key}")
                         processed_count += 1
                         
                     except Exception as e:
