@@ -1,0 +1,30 @@
+[Unit]
+Description=OCR Spot Fleet Processor - Automatic PDF OCR Processing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=myok
+Group=myok
+WorkingDirectory=/home/myok/Desktop/PROYECTOS/ocr_spot
+Environment="PATH=/home/myok/Desktop/PROYECTOS/ocr_spot/venv/bin:/usr/local/bin:/usr/bin:/bin"
+
+# Activar virtualenv y ejecutar script
+ExecStart=/home/myok/Desktop/PROYECTOS/ocr_spot/venv/bin/python /home/myok/Desktop/PROYECTOS/ocr_spot/spot_fleet/main_run.py --config /home/myok/Desktop/PROYECTOS/ocr_spot/config.conf
+
+# Reinicio automático en caso de fallo
+Restart=on-failure
+RestartSec=30
+
+# Límites de recursos (ajustar según necesidad)
+MemoryMax=4G
+CPUQuota=80%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ocr-spot-processor
+
+[Install]
+WantedBy=multi-user.target
