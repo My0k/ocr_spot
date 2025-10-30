@@ -14,9 +14,9 @@ class PDFUploader:
         self.region = self.config.get('AWS', 'region')
         self.table_name = self.config.get('AWS', 'dynamo_table')
         
-        # Bucket de salida separado (o mismo si no se especifica)
+        # Usar 'output_bucket' para consistencia con main_tools.py
         self.input_bucket = self.config.get('AWS', 's3_bucket')
-        self.output_bucket = self.config.get('AWS', 's3_output_bucket', fallback=self.input_bucket)
+        self.output_bucket = self.config.get('AWS', 'output_bucket', fallback=self.input_bucket)
         
         self.aws_access_key_id = self.config.get('AWS', 'aws_access_key_id')
         self.aws_secret_access_key = self.config.get('AWS', 'aws_secret_access_key')
