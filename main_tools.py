@@ -269,6 +269,15 @@ class OCRSpotManager:
         for pdf_path in pdf_paths:
             input_path = f"s3://{self.bucket_name}/{pdf_path}"
             
+            # Generar output_path automáticamente con sufijo _ocr
+            from pathlib import Path
+            path_obj = Path(pdf_path)
+            name_without_ext = path_obj.stem
+            extension = path_obj.suffix
+            output_filename = f"{name_without_ext}_ocr{extension}"
+            output_key = str(path_obj.parent / output_filename)
+            output_path = f"s3://{self.output_bucket}/{output_key}"
+            
             try:
                 # Verificar si ya existe en DynamoDB usando ambas claves
                 response = self.table.get_item(
@@ -297,27 +306,52 @@ class OCRSpotManager:
                     )
                 
                 if 'Item' not in response:
-                    # No existe, crear nueva entrada
+                    # No existe, crear nueva entrada con output_path
                     self.table.put_item(
                         Item={
                             'input_path': input_path,
+                            'output_path': output_path,
                             'ocr_done': 'false',
                             'odoo_loaded': 'false'
                         }
                     )
                     new_entries += 1
-                    print(f"Nueva entrada: {input_path}")
+                    print(f"✅ Nueva entrada: {input_path}")
+                    print(f"   → Output: {output_path}")
                 else:
                     existing_entries += 1
-                    print(f"Ya existe: {input_path} (ocr_done: {response['Item']['ocr_done']})")
+                    # Si existe pero no tiene output_path, agregarlo
+                    if 'output_path' not in response['Item']:
+                        try:
+                            self.table.update_item(
+                                Key={
+                                    'input_path': input_path,
+                                    'ocr_done': response['Item']['ocr_done']
+                                },
+                                UpdateExpression='SET output_path = :output_path',
+                                ExpressionAttributeValues={
+                                    ':output_path': output_path
+                                }
+                            )
+                            print(f"🔄 Actualizado con output_path: {input_path}")
+                            print(f"   → Output: {output_path}")
+                        except ClientError as e:
+                            print(f"❌ Error actualizando output_path: {e}")
+                    else:
+                        print(f"⏭️  Ya existe: {input_path} (ocr_done: {response['Item']['ocr_done']})")
                     
             except ClientError as e:
-                print(f"Error procesando {input_path}: {e}")
+                print(f"❌ Error procesando {input_path}: {e}")
         
-        print(f"\nResumen:")
-        print(f"- Nuevas entradas creadas: {new_entries}")
-        print(f"- Entradas existentes: {existing_entries}")
-        print(f"- Total PDFs procesados: {len(pdf_paths)}")
+        print(f"\n{'='*60}")
+        print(f"RESUMEN:")
+        print(f"{'='*60}")
+        print(f"✅ Nuevas entradas creadas: {new_entries}")
+        print(f"⏭️  Entradas existentes: {existing_entries}")
+        print(f"📊 Total PDFs procesados: {len(pdf_paths)}")
+        print(f"📁 Bucket input: {self.bucket_name}")
+        print(f"📁 Bucket output: {self.output_bucket}")
+        print(f"{'='*60}")
 
     def reset_ocr_done_status(self):
         """Cambia todos los 'in_process' de ocr_done a 'false'"""
