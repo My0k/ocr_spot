@@ -1,7 +1,9 @@
 # Entornos virtuales
 venv/
 .venv/
-
+/spot_fleet/config.conf
+/spot_fleet/venv
+*/config.conf
 # Configuraciones sensibles
 config.conf
 
