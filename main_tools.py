@@ -978,6 +978,86 @@ class OCRSpotManager:
         except ClientError as e:
             print(f"Error creando entrada DynamoDB para {input_s3_path}: {e}")
 
+    def reset_all_non_true_to_false(self):
+        """Cambia todos los registros que no tengan ocr_done='true' a ocr_done='false'"""
+        print("Cambiando todos los registros que no sean ocr_done='true' a ocr_done='false'...")
+        
+        try:
+            # Escanear toda la tabla buscando registros que NO sean ocr_done = 'true'
+            response = self.table.scan(
+                FilterExpression=boto3.dynamodb.conditions.Attr('ocr_done').ne('true')
+            )
+            
+            updated_count = 0
+            
+            for item in response['Items']:
+                current_ocr_done = item['ocr_done']
+                
+                # Solo procesar si no es 'true' y no es ya 'false'
+                if current_ocr_done != 'true' and current_ocr_done != 'false':
+                    # Eliminar el registro actual
+                    self.table.delete_item(
+                        Key={
+                            'input_path': item['input_path'],
+                            'ocr_done': current_ocr_done
+                        }
+                    )
+                    
+                    # Crear nuevo registro con ocr_done = 'false'
+                    new_item = {
+                        'input_path': item['input_path'],
+                        'ocr_done': 'false',
+                        'odoo_loaded': item.get('odoo_loaded', 'false')
+                    }
+                    
+                    # Preservar output_path si existe
+                    if 'output_path' in item:
+                        new_item['output_path'] = item['output_path']
+                    
+                    self.table.put_item(Item=new_item)
+                    updated_count += 1
+                    print(f"Actualizado: {item['input_path']} ({current_ocr_done} → false)")
+            
+            # Manejar paginación si hay más elementos
+            while 'LastEvaluatedKey' in response:
+                response = self.table.scan(
+                    FilterExpression=boto3.dynamodb.conditions.Attr('ocr_done').ne('true'),
+                    ExclusiveStartKey=response['LastEvaluatedKey']
+                )
+                
+                for item in response['Items']:
+                    current_ocr_done = item['ocr_done']
+                    
+                    # Solo procesar si no es 'true' y no es ya 'false'
+                    if current_ocr_done != 'true' and current_ocr_done != 'false':
+                        # Eliminar el registro actual
+                        self.table.delete_item(
+                            Key={
+                                'input_path': item['input_path'],
+                                'ocr_done': current_ocr_done
+                            }
+                        )
+                        
+                        # Crear nuevo registro con ocr_done = 'false'
+                        new_item = {
+                            'input_path': item['input_path'],
+                            'ocr_done': 'false',
+                            'odoo_loaded': item.get('odoo_loaded', 'false')
+                        }
+                        
+                        # Preservar output_path si existe
+                        if 'output_path' in item:
+                            new_item['output_path'] = item['output_path']
+                        
+                        self.table.put_item(Item=new_item)
+                        updated_count += 1
+                        print(f"Actualizado: {item['input_path']} ({current_ocr_done} → false)")
+            
+            print(f"\nTotal de registros actualizados a 'false': {updated_count}")
+            
+        except ClientError as e:
+            print(f"Error actualizando registros: {e}")
+
 
 def main():
     """Función principal con menú interactivo"""
@@ -1006,10 +1086,11 @@ def main():
         print("7. 🗑️  Eliminar contenido del bucket S3")
         print("8. 🗑️  Eliminar contenido de la tabla DynamoDB")
         print("9. 📥 Sincronizar PDFs desde Odoo a S3 y DynamoDB")
-        print("10. Salir")
+        print("10. 🔄 Resetear todos los no-'true' a 'false' en ocr_done")
+        print("11. Salir")
         print("-"*50)
         
-        choice = input("Selecciona una opción (1-10): ").strip()
+        choice = input("Selecciona una opción (1-11): ").strip()
         
         if choice == '1':
             manager.listen_sns_messages()
@@ -1067,13 +1148,27 @@ def main():
                 manager.sync_odoo_to_s3_and_dynamodb(step_by_step)
             else:
                 print("Operación cancelada")
-                
+        
         elif choice == '10':
+            print("\n🔄 RESETEAR TODOS LOS NO-'TRUE' A 'FALSE'")
+            print("Esta operación:")
+            print("- Busca todos los registros donde ocr_done ≠ 'true'")
+            print("- Los cambia a ocr_done = 'false'")
+            print("- Preserva todos los demás campos (output_path, odoo_loaded, etc.)")
+            print("- NO afecta registros que ya tienen ocr_done = 'true'")
+            
+            confirm = input("¿Continuar con esta operación? (y/N): ").strip().lower()
+            if confirm == 'y':
+                manager.reset_all_non_true_to_false()
+            else:
+                print("Operación cancelada")
+                
+        elif choice == '11':
             print("¡Hasta luego!")
             break
             
         else:
-            print("Opción no válida. Por favor selecciona 1-10.")
+            print("Opción no válida. Por favor selecciona 1-11.")
 
 
 if __name__ == "__main__":

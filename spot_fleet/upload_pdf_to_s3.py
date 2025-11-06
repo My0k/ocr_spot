@@ -65,49 +65,7 @@ class PDFUploader:
         
         return output_path, new_key
 
-    def upload_pdf(self, local_file_path: str, input_path: str):
-        """Sube el PDF con OCR a S3 y actualiza DynamoDB"""
-        try:
-            # Validar que el archivo local existe
-            if not os.path.exists(local_file_path):
-                raise FileNotFoundError(f"No se encontró el archivo local: {local_file_path}")
-            
-            # Generar ruta de salida
-            output_path, s3_key = self.generate_output_path(input_path, local_file_path)
-            
-            print(f"Subiendo {local_file_path} a {output_path}")
-            
-            # Subir archivo a S3
-            self.s3_client.upload_file(
-                local_file_path,
-                self.output_bucket,
-                s3_key,
-                ExtraArgs={
-                    'ContentType': 'application/pdf',
-                    'Metadata': {
-                        'original_file': input_path,
-                        'processed_with': 'ocrmypdf'
-                    }
-                }
-            )
-            
-            print(f"Archivo subido exitosamente a: {output_path}")
-            
-            # Actualizar DynamoDB: cambiar ocr_done de in_process a true y agregar output_path
-            self.update_dynamodb_success(input_path, output_path)
-            
-            return output_path
-            
-        except ClientError as e:
-            print(f"Error subiendo archivo a S3: {e}")
-            self.update_dynamodb_failure(input_path)
-            return None
-        except Exception as e:
-            print(f"Error: {e}")
-            self.update_dynamodb_failure(input_path)
-            return None
-
-    def update_dynamodb_success(self, input_path: str, output_path: str):
+    def update_dynamodb_success(self, input_path: str, output_path: str, is_historic: bool = False):
         """Actualiza DynamoDB cuando la subida es exitosa"""
         try:
             # Eliminar registro con ocr_done = in_process
@@ -119,22 +77,27 @@ class PDFUploader:
             )
             
             # Crear nuevo registro con ocr_done = true y output_path
-            self.table.put_item(
-                Item={
-                    'input_path': input_path,
-                    'output_path': output_path,
-                    'ocr_done': 'true',
-                    'odoo_loaded': 'false'
-                }
-            )
+            item_data = {
+                'input_path': input_path,
+                'output_path': output_path,
+                'ocr_done': 'true',
+                'odoo_loaded': 'false'
+            }
             
-            print(f"DynamoDB actualizado: OCR completado para {input_path}")
+            # Agregar metadata si es histórico
+            if is_historic:
+                item_data['processing_note'] = 'historic_file_copied'
+            
+            self.table.put_item(Item=item_data)
+            
+            status_msg = "histórico copiado" if is_historic else "OCR completado"
+            print(f"DynamoDB actualizado: {status_msg} para {input_path}")
             
         except ClientError as e:
             print(f"Error actualizando DynamoDB: {e}")
 
-    def update_dynamodb_failure(self, input_path: str):
-        """Actualiza DynamoDB cuando hay un error en la subida"""
+    def update_dynamodb_failure(self, input_path: str, is_error: bool = False):
+        """Actualiza DynamoDB cuando hay un error en la subida o procesamiento"""
         try:
             # Eliminar registro con ocr_done = in_process
             self.table.delete_item(
@@ -144,19 +107,69 @@ class PDFUploader:
                 }
             )
             
-            # Crear nuevo registro con ocr_done = false para reintento
+            # Determinar nuevo estado
+            new_status = 'error' if is_error else 'false'
+            
+            # Crear nuevo registro con el estado apropiado
             self.table.put_item(
                 Item={
                     'input_path': input_path,
-                    'ocr_done': 'false',
+                    'ocr_done': new_status,
                     'odoo_loaded': 'false'
                 }
             )
             
-            print(f"DynamoDB actualizado: Error en procesamiento, marcado para reintento")
+            status_msg = "error (no se reintentará)" if is_error else "false (se reintentará)"
+            print(f"DynamoDB actualizado: {status_msg}")
             
         except ClientError as e:
             print(f"Error actualizando DynamoDB tras fallo: {e}")
+
+    def upload_pdf(self, local_file_path: str, input_path: str, is_historic: bool = False):
+        """Sube el PDF con OCR a S3 y actualiza DynamoDB"""
+        try:
+            # Validar que el archivo local existe
+            if not os.path.exists(local_file_path):
+                raise FileNotFoundError(f"No se encontró el archivo local: {local_file_path}")
+            
+            # Generar ruta de salida
+            output_path, s3_key = self.generate_output_path(input_path, local_file_path)
+            
+            file_type = "histórico" if is_historic else "con OCR"
+            print(f"Subiendo archivo {file_type}: {local_file_path} a {output_path}")
+            
+            # Preparar metadata
+            metadata = {
+                'original_file': input_path,
+                'processed_with': 'historic_copy' if is_historic else 'ocrmypdf'
+            }
+            
+            # Subir archivo a S3
+            self.s3_client.upload_file(
+                local_file_path,
+                self.output_bucket,
+                s3_key,
+                ExtraArgs={
+                    'ContentType': 'application/pdf',
+                    'Metadata': metadata
+                }
+            )
+            
+            print(f"Archivo subido exitosamente a: {output_path}")
+            
+            # Actualizar DynamoDB: cambiar ocr_done de in_process a true
+            self.update_dynamodb_success(input_path, output_path, is_historic)
+            
+            return output_path
+            
+        except ClientError as e:
+            print(f"Error subiendo archivo a S3: {e}")
+            self.update_dynamodb_failure(input_path, is_error=True)
+            return None
+        except Exception as e:
+            print(f"Error: {e}")
+            self.update_dynamodb_failure(input_path, is_error=True)
+            return None
 
     def cleanup_local_file(self, local_path: str):
         """Elimina el archivo local después de subirlo"""

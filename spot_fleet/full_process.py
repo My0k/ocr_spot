@@ -12,6 +12,11 @@ class FullOCRProcessor:
         self.ocr_processor = OCRProcessor()
         self.uploader = PDFUploader(config_file)
     
+    def is_historic_pdf(self, file_path: str) -> bool:
+        """Verifica si el PDF es histórico basándose en el nombre del archivo"""
+        filename = os.path.basename(file_path).lower()
+        return 'historico' in filename
+    
     def process_single_pdf(self, language: str = 'spa'):
         """Procesa un solo PDF completo: descarga -> OCR -> subida"""
         print("=== Iniciando proceso completo OCR ===")
@@ -29,27 +34,40 @@ class FullOCRProcessor:
         
         print(f"✅ PDF descargado: {local_path}")
         
+        # Verificar si es archivo histórico
+        is_historic = self.is_historic_pdf(local_path)
+        if is_historic:
+            print("📜 Archivo histórico detectado - se copiará sin OCR")
+        
         try:
-            # Paso 2: Procesar PDF con OCR
-            print("\n2. Aplicando OCR al PDF...")
-            ocr_output_path = self.ocr_processor.apply_ocr(local_path, language)
+            # Paso 2: Procesar PDF con OCR o copiar si es histórico
+            if is_historic:
+                print("\n2. Copiando archivo histórico...")
+                ocr_output_path, error_occurred = self.ocr_processor.apply_ocr(local_path, language)
+            else:
+                print("\n2. Aplicando OCR al PDF...")
+                ocr_output_path, error_occurred = self.ocr_processor.apply_ocr(local_path, language)
             
-            if not ocr_output_path:
-                print("❌ Error aplicando OCR")
-                self.downloader.revert_status(input_path)
+            if not ocr_output_path or error_occurred:
+                error_msg = "Error procesando archivo" if error_occurred else "Error desconocido"
+                print(f"❌ {error_msg}")
+                self.downloader.revert_status(input_path, error_occurred=error_occurred)
                 self.cleanup_local_files(local_path)
-                return False
+                # Retornar None para indicar que hubo un error pero que se debe continuar
+                # En lugar de False que indica "no hay más archivos"
+                return None
             
-            print(f"✅ OCR aplicado: {ocr_output_path}")
+            process_type = "copiado (histórico)" if is_historic else "OCR aplicado"
+            print(f"✅ {process_type}: {ocr_output_path}")
             
             # Paso 3: Subir PDF procesado a S3 y cambiar estado a true
-            print("\n3. Subiendo PDF procesado a S3...")
-            output_s3_path = self.uploader.upload_pdf(ocr_output_path, input_path)
+            print(f"\n3. Subiendo PDF {'histórico' if is_historic else 'procesado'} a S3...")
+            output_s3_path = self.uploader.upload_pdf(ocr_output_path, input_path, is_historic)
             
             if not output_s3_path:
                 print("❌ Error subiendo PDF a S3")
                 self.cleanup_local_files(local_path, ocr_output_path)
-                return False
+                return None  # Error, pero continuar con siguiente archivo
             
             print(f"✅ PDF subido a S3: {output_s3_path}")
             
@@ -60,15 +78,17 @@ class FullOCRProcessor:
             print("\n=== Proceso completado exitosamente ===")
             print(f"Archivo original: {input_path}")
             print(f"Archivo procesado: {output_s3_path}")
+            if is_historic:
+                print("📜 Archivo histórico - copiado sin OCR")
             print("📁 Archivos locales eliminados para liberar espacio")
             
             return True
             
         except Exception as e:
             print(f"❌ Error durante el procesamiento: {e}")
-            self.downloader.revert_status(input_path)
+            self.downloader.revert_status(input_path, error_occurred=True)
             self.cleanup_local_files(local_path, ocr_output_path if 'ocr_output_path' in locals() else None)
-            return False
+            return None  # Error, pero continuar con siguiente archivo
     
     def cleanup_local_files(self, *file_paths):
         """Limpia archivos locales"""
